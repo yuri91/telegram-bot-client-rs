@@ -13,6 +13,7 @@ extern crate error_chain;
 
 use std::time::Duration;
 use std::str::FromStr;
+use std::rc::Rc;
 
 use tokio_core::reactor;
 use futures::{Future, Stream, Async, Poll};
@@ -109,10 +110,11 @@ mod response {
 }
 pub use response::Update;
 
+#[derive(Clone)]
 pub struct ApiClient {
     base_url: String,
     timeout: Duration,
-    client: Client<HttpsConnector>,
+    client: Rc<Client<HttpsConnector>>,
 }
 
 pub struct UpdateStream<'a> {
@@ -142,7 +144,7 @@ impl ApiClient {
         ApiClient {
             base_url,
             timeout,
-            client,
+            client: Rc::new(client),
         }
     }
     pub fn init(handle: reactor::Handle, token: &str) -> util::BoxFuture<ApiClient> {
