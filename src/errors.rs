@@ -1,5 +1,6 @@
 use super::hyper;
 use super::serde_json;
+use ::std::io;
 
 error_chain! {
     types {
@@ -12,6 +13,7 @@ error_chain! {
     foreign_links {
         Http(hyper::Error);
         Json(serde_json::Error);
+        Io(io::Error);
     }
 
     errors {
