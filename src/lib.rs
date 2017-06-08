@@ -1,3 +1,5 @@
+#![feature(conservative_impl_trait)]
+
 extern crate hyper;
 extern crate hyper_tls;
 extern crate futures;
@@ -29,13 +31,6 @@ use serde::de::DeserializeOwned;
 
 pub mod errors;
 use errors::{Error, ErrorKind};
-
-pub mod util {
-    use super::futures;
-    use super::errors::Error;
-    pub type Future<T> = futures::Future<Item = T, Error = Error>;
-    pub type BoxFuture<T> = Box<Future<T>>;
-}
 
 mod request {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -112,21 +107,27 @@ pub use response::Update;
 
 #[derive(Clone)]
 pub struct ApiClient {
-    base_url: String,
     timeout: Duration,
     client: Rc<Client<HttpsConnector>>,
 }
 
-pub struct UpdateStream<'a> {
+#[derive(Clone)]
+pub struct Bot<'a> {
     client: &'a ApiClient,
+    base_url: String,
+}
+
+pub struct UpdateStream<'a>  {
+    bot: &'a Bot<'a>,
     next_offset: i32,
-    pending_response: Option<util::BoxFuture<Vec<response::RawUpdate>>>,
+    pending_response: Option<Box<Future<Item=Vec<response::RawUpdate>,Error=Error>+'a>>,
     pending_updates: Vec<response::RawUpdate>,
 }
+
 impl<'a> UpdateStream<'a> {
-    fn new(client: &'a ApiClient) -> UpdateStream<'a> {
+    fn new(bot: &'a Bot) -> UpdateStream<'a> {
         UpdateStream {
-            client,
+            bot,
             next_offset: 0,
             pending_response: None,
             pending_updates: Vec::new(),
@@ -135,36 +136,45 @@ impl<'a> UpdateStream<'a> {
 }
 
 impl ApiClient {
-    fn new(handle: reactor::Handle, token: &str) -> ApiClient {
-        let base_url = format!("https://api.telegram.org/bot{}/", token);
+    pub fn new(handle: reactor::Handle) -> ApiClient {
         let client = Client::configure()
             .connector(HttpsConnector::new(4, &handle))
             .build(&handle);
         let timeout = Duration::from_secs(120);
         ApiClient {
-            base_url,
             timeout,
             client: Rc::new(client),
         }
     }
-    pub fn init(handle: reactor::Handle, token: &str) -> util::BoxFuture<ApiClient> {
-        let client = ApiClient::new(handle, token);
-        Box::new(client
-                     .get_me()
-                     .then(|res| match res {
-                               Ok(_) => future::ok::<_, Error>(client),
-                               Err(err) => future::err::<_, Error>(err),
-                           }))
+    pub fn create_bot<'a>(&'a self, token: &str) -> Bot<'a> {
+        Bot::new(self, token)
     }
-    pub fn request<S, D>(&self, endpoint: &str, data: &S) -> util::BoxFuture<D>
+}
+impl<'a> Bot<'a> {
+    fn new(client: &'a ApiClient, token: &str) -> Bot<'a> {
+        let base_url = format!("https://api.telegram.org/bot{}/", token);
+        Bot {
+            client,
+            base_url,
+        }
+    }
+    pub fn check(&'a self) -> impl Future<Item=(),Error=Error>+'a {
+        self.get_me().then(|res| {
+            match res {
+                Ok(_) => future::ok::<(), Error>(()),
+                Err(err) => future::err::<(), Error>(err),
+            }
+        })
+    }
+    pub fn request<S, D>(&'a self, endpoint: &str, data: &S) -> impl Future<Item=D,Error=Error>+'a
         where S: Serialize,
-              D: DeserializeOwned + 'static
+              D: DeserializeOwned+'a
     {
         let uri = Uri::from_str(&format!("{}{}", self.base_url, endpoint)).unwrap();
         let mut req = Request::new(Method::Post, uri);
         req.headers_mut().set(ContentType::json());
         req.set_body(serde_json::to_string(data).expect("Error converting struct to json"));
-        Box::new(self.client
+        self.client.client
                      .request(req)
                      .from_err::<Error>()
                      .and_then(|res| {
@@ -189,20 +199,20 @@ impl ApiClient {
                                   return Err(ErrorKind::ApiResponse(description).into());
                               }
                           })
-        }))
+        })
     }
 
-    fn get_me(&self) -> util::BoxFuture<serde_json::Value> {
+    fn get_me(&'a self) -> impl Future<Item=serde_json::Value,Error=Error>+'a {
         self.request("getMe", &request::Empty)
     }
-    fn get_updates(&self, offset: i32) -> util::BoxFuture<Vec<response::RawUpdate>> {
+    fn get_updates(&'a self, offset: i32) -> impl Future<Item=Vec<response::RawUpdate>,Error=Error>+'a {
         let req = request::Update {
             offset,
-            timeout: self.timeout.as_secs() as i32,
+            timeout: self.client.timeout.as_secs() as i32,
         };
         self.request("getUpdates", &req)
     }
-    pub fn update_stream<'a>(&'a self) -> UpdateStream<'a> {
+    pub fn update_stream(&'a self) -> UpdateStream<'a> {
         UpdateStream::new(&self)
     }
 }
@@ -242,7 +252,7 @@ impl<'a> Stream for UpdateStream<'a> {
                     }
                 }
             }
-            self.pending_response = Some(self.client.get_updates(self.next_offset));
+            self.pending_response = Some(Box::new(self.bot.get_updates(self.next_offset)));
         }
 
     }
