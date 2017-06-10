@@ -1,6 +1,6 @@
 use super::hyper;
 use super::serde_json;
-use ::std::io;
+use std::io;
 
 error_chain! {
     types {

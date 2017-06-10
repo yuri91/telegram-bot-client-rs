@@ -105,119 +105,102 @@ mod response {
 }
 pub use response::Update;
 
-#[derive(Clone)]
-pub struct ApiClient {
-    timeout: Duration,
+pub struct BotFactory {
     client: Rc<Client<HttpsConnector>>,
 }
 
 #[derive(Clone)]
-pub struct Bot<'a> {
-    client: &'a ApiClient,
+pub struct Bot {
+    client: Rc<Client<HttpsConnector>>,
     base_url: String,
 }
 
-pub struct UpdateStream<'a>  {
-    bot: &'a Bot<'a>,
+pub struct UpdateStream {
+    bot: Bot,
+    timeout: Duration,
     next_offset: i32,
-    pending_response: Option<Box<Future<Item=Vec<response::RawUpdate>,Error=Error>+'a>>,
+    pending_response: Option<Box<Future<Item = Vec<response::RawUpdate>, Error = Error>>>,
     pending_updates: Vec<response::RawUpdate>,
 }
 
-impl<'a> UpdateStream<'a> {
-    fn new(bot: &'a Bot) -> UpdateStream<'a> {
-        UpdateStream {
-            bot,
-            next_offset: 0,
-            pending_response: None,
-            pending_updates: Vec::new(),
-        }
-    }
-}
-
-impl ApiClient {
-    pub fn new(handle: reactor::Handle) -> ApiClient {
+impl BotFactory {
+    pub fn new(handle: reactor::Handle) -> BotFactory {
         let client = Client::configure()
             .connector(HttpsConnector::new(4, &handle))
             .build(&handle);
-        let timeout = Duration::from_secs(120);
-        ApiClient {
-            timeout,
-            client: Rc::new(client),
-        }
+        BotFactory { client: Rc::new(client) }
     }
-    pub fn create_bot<'a>(&'a self, token: &str) -> Bot<'a> {
-        Bot::new(self, token)
+    pub fn new_bot(&self, token: &str) -> (Bot, UpdateStream) {
+        let bot = Bot::new(self.client.clone(), token);
+        let stream = UpdateStream::new(bot.clone());
+        (bot, stream)
     }
 }
-impl<'a> Bot<'a> {
-    fn new(client: &'a ApiClient, token: &str) -> Bot<'a> {
+
+impl Bot {
+    fn new(client: Rc<Client<HttpsConnector>>, token: &str) -> Bot {
         let base_url = format!("https://api.telegram.org/bot{}/", token);
-        Bot {
-            client,
-            base_url,
-        }
+        Bot { client, base_url }
     }
-    pub fn check(&'a self) -> impl Future<Item=(),Error=Error>+'a {
-        self.get_me().then(|res| {
-            match res {
-                Ok(_) => future::ok::<(), Error>(()),
-                Err(err) => future::err::<(), Error>(err),
-            }
-        })
-    }
-    pub fn request<S, D>(&'a self, endpoint: &str, data: &S) -> impl Future<Item=D,Error=Error>+'a
+    pub fn request<S, D>(&self, endpoint: &str, data: &S) -> impl Future<Item = D, Error = Error>
         where S: Serialize,
-              D: DeserializeOwned+'a
+              D: DeserializeOwned
     {
         let uri = Uri::from_str(&format!("{}{}", self.base_url, endpoint)).unwrap();
         let mut req = Request::new(Method::Post, uri);
         req.headers_mut().set(ContentType::json());
         req.set_body(serde_json::to_string(data).expect("Error converting struct to json"));
-        self.client.client
-                     .request(req)
-                     .from_err::<Error>()
-                     .and_then(|res| {
-            res.body()
-                .from_err::<Error>()
-                .fold(Vec::new(), |mut v, chunk| {
-                    v.extend(&chunk[..]);
-                    future::ok::<_, Error>(v)
-                })
-                .and_then(|chunks| {
-                              let s = String::from_utf8(chunks).unwrap();
-                              future::result::<response::Response, Error>(serde_json::from_str(&s)
-                                                                              .map_err(|e| {
-                                                                                           e.into()
-                                                                                       }))
-                          })
-                .and_then(|response| match response {
-                              response::Response::Ok { result } => {
-                                  serde_json::from_value(result).map_err(|e| e.into())
-                              }
-                              response::Response::Error { description } => {
-                                  return Err(ErrorKind::ApiResponse(description).into());
-                              }
-                          })
-        })
-    }
-
-    fn get_me(&'a self) -> impl Future<Item=serde_json::Value,Error=Error>+'a {
-        self.request("getMe", &request::Empty)
-    }
-    fn get_updates(&'a self, offset: i32) -> impl Future<Item=Vec<response::RawUpdate>,Error=Error>+'a {
-        let req = request::Update {
-            offset,
-            timeout: self.client.timeout.as_secs() as i32,
-        };
-        self.request("getUpdates", &req)
-    }
-    pub fn update_stream(&'a self) -> UpdateStream<'a> {
-        UpdateStream::new(&self)
+        self.client
+            .request(req)
+            .from_err::<Error>()
+            .and_then(|res| {
+                res.body()
+                    .from_err::<Error>()
+                    .fold(Vec::new(), |mut v, chunk| {
+                        v.extend(&chunk[..]);
+                        future::ok::<_, Error>(v)
+                    })
+                    .and_then(|chunks| {
+                                  let s = String::from_utf8(chunks).unwrap();
+                                  future::result::<response::Response,
+                                                   Error>(serde_json::from_str(&s).map_err(|e| {
+                            e.into()
+                        }))
+                              })
+                    .and_then(|response| match response {
+                                  response::Response::Ok { result } => {
+                                      serde_json::from_value(result).map_err(|e| e.into())
+                                  }
+                                  response::Response::Error { description } => {
+                                      return Err(ErrorKind::ApiResponse(description).into());
+                                  }
+                              })
+            })
     }
 }
 
-impl<'a> Stream for UpdateStream<'a> {
+impl UpdateStream {
+    fn new(bot: Bot) -> UpdateStream {
+        UpdateStream {
+            bot,
+            timeout: Duration::from_secs(120),
+            next_offset: 0,
+            pending_response: None,
+            pending_updates: Vec::new(),
+        }
+    }
+    fn get_updates(&self,
+                   offset: i32)
+                   -> impl Future<Item = Vec<response::RawUpdate>, Error = Error> {
+        let req = request::Update {
+            offset,
+            timeout: self.timeout.as_secs() as i32,
+        };
+        self.bot.request("getUpdates", &req)
+    }
+}
+
+impl Stream for UpdateStream {
     type Item = response::Update;
     type Error = Error;
 
@@ -252,7 +235,7 @@ impl<'a> Stream for UpdateStream<'a> {
                     }
                 }
             }
-            self.pending_response = Some(Box::new(self.bot.get_updates(self.next_offset)));
+            self.pending_response = Some(Box::new(self.get_updates(self.next_offset)));
         }
 
     }

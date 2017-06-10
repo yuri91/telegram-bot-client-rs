@@ -4,8 +4,7 @@ extern crate tokio_core;
 extern crate serde_json;
 
 extern crate telegram_bot;
-use telegram_bot::{ApiClient, Update};
-use telegram_bot::util;
+use telegram_bot::{BotFactory, Update};
 
 extern crate telegram_bot_api;
 use telegram_bot_api as api;
@@ -18,30 +17,30 @@ fn main() {
     let mut event_loop = reactor::Core::new().unwrap();
     let handle = event_loop.handle();
 
-    let try_client = ApiClient::init(handle, &std::env::var("BOT_TOKEN").expect("Please define the BOT_TOKEN env variable"));
-    let client = event_loop.run(try_client).expect("Authentication problem");
-    let work = client
-        .update_stream()
-        .for_each(|update| {
-            println!("{:?}", update);
-            let w: util::BoxFuture<()> = match update {
-                Update::Message(msg) => {
-                    let msg: api::response::Message = serde_json::from_value(msg)
-                        .expect("Unexpected message format");
-                    let ret: util::BoxFuture<serde_json::Value> = client
-                        .request("sendMessage",
-                                 &api::request::Message {
-                                     chat_id: msg.chat.id,
-                                     text: msg.text.expect("please send text for now"),
-                                 });
-                    Box::new(ret.and_then(|r| {
-                                              println!("{:?}", r);
-                                              future::ok(())
-                                          }))
-                }
-                _ => Box::new(future::ok(())),
-            };
-            w
+    let factory = BotFactory::new(handle.clone());
+    let (bot, updates) =
+        factory.new_bot(&std::env::var("BOT_TOKEN")
+                             .expect("Please define the BOT_TOKEN env variable"));
+    let work = updates
+        .filter_map(|update| {
+                        println!("{:?}", update);
+                        match update {
+                            Update::Message(msg) => Some(msg),
+                            _ => None,
+                        }
+                    })
+        .for_each(|msg| {
+            let msg: api::response::Message = serde_json::from_value(msg)
+                .expect("Unexpected message format");
+            let ret = bot
+                        .request::<_, serde_json::Value>("sendMessage",
+                                 &api::request::Message::new(
+                                     msg.chat.id,
+                                     msg.text.expect("please send text for now")));
+            ret.and_then(|r| {
+                             println!("{:?}", r);
+                             future::ok(())
+                         })
         });
     event_loop.run(work).unwrap();
 }
