@@ -1,5 +1,3 @@
-#![feature(conservative_impl_trait)]
-
 extern crate hyper;
 extern crate hyper_tls;
 extern crate futures;
@@ -144,15 +142,15 @@ impl Bot {
         let base_url = format!("https://api.telegram.org/bot{}/", token);
         Bot { client, base_url }
     }
-    pub fn request<S, D>(&self, endpoint: &str, data: &S) -> impl Future<Item = D, Error = Error>
+    pub fn request<S, D>(&self, endpoint: &str, data: &S) -> Box<Future<Item = D, Error = Error>>
         where S: Serialize,
-              D: DeserializeOwned
+              D: DeserializeOwned+'static
     {
         let uri = Uri::from_str(&format!("{}{}", self.base_url, endpoint)).unwrap();
         let mut req = Request::new(Method::Post, uri);
         req.headers_mut().set(ContentType::json());
         req.set_body(serde_json::to_string(data).expect("Error converting struct to json"));
-        self.client
+        Box::new(self.client
             .request(req)
             .from_err::<Error>()
             .and_then(|res| {
@@ -177,7 +175,7 @@ impl Bot {
                                       return Err(ErrorKind::ApiResponse(description).into());
                                   }
                               })
-            })
+            }))
     }
 }
 
@@ -193,7 +191,7 @@ impl UpdateStream {
     }
     fn get_updates(&self,
                    offset: i32)
-                   -> impl Future<Item = Vec<response::RawUpdate>, Error = Error> {
+                   -> Box<Future<Item = Vec<response::RawUpdate>, Error = Error>> {
         let req = request::Update {
             offset,
             timeout: self.timeout.as_secs() as i32,
@@ -237,7 +235,7 @@ impl Stream for UpdateStream {
                     }
                 }
             }
-            self.pending_response = Some(Box::new(self.get_updates(self.next_offset)));
+            self.pending_response = Some(self.get_updates(self.next_offset));
         }
 
     }
