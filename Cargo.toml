@@ -6,16 +6,10 @@ version = "0.1.0"
 [dependencies]
 error-chain = "0.10.0"
 futures = "0.1"
-serde = "*"
-serde_derive = "*"
-serde_json = "*"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
 tokio-core = "0.1"
-
-[dependencies.hyper]
-git = "https://github.com/hyperium/hyper"
-
-[dependencies.hyper-tls]
-git = "https://github.com/hyperium/hyper-tls"
-
-[dev-dependencies.telegram-bot-api]
-path = "../telegram-bot-api"
+hyper = "0.11"
+hyper-tls = "0.1"
+telegram-bot-types = "0.1.1"

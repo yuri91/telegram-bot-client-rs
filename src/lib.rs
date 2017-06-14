@@ -22,9 +22,11 @@ use futures::{Future, Stream, Async, Poll};
 use futures::future;
 
 use hyper::{Uri, Method};
-use hyper::client::{Client, Request};
+use hyper::client::Request;
 use hyper::header::ContentType;
 use hyper_tls::HttpsConnector;
+
+type Client = hyper::client::Client<HttpsConnector<hyper::client::HttpConnector>>;
 
 use serde::ser::Serialize;
 use serde::de::DeserializeOwned;
@@ -106,12 +108,12 @@ mod response {
 pub use response::Update;
 
 pub struct BotFactory {
-    client: Rc<Client<HttpsConnector>>,
+    client: Rc<Client>,
 }
 
 #[derive(Clone)]
 pub struct Bot {
-    client: Rc<Client<HttpsConnector>>,
+    client: Rc<Client>,
     base_url: String,
 }
 
@@ -125,8 +127,8 @@ pub struct UpdateStream {
 
 impl BotFactory {
     pub fn new(handle: reactor::Handle) -> BotFactory {
-        let client = Client::configure()
-            .connector(HttpsConnector::new(4, &handle))
+        let client = hyper::Client::configure()
+            .connector(HttpsConnector::new(4, &handle).expect("connector failed"))
             .build(&handle);
         BotFactory { client: Rc::new(client) }
     }
@@ -138,7 +140,7 @@ impl BotFactory {
 }
 
 impl Bot {
-    fn new(client: Rc<Client<HttpsConnector>>, token: &str) -> Bot {
+    fn new(client: Rc<Client>, token: &str) -> Bot {
         let base_url = format!("https://api.telegram.org/bot{}/", token);
         Bot { client, base_url }
     }
