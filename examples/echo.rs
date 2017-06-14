@@ -3,11 +3,11 @@ extern crate tokio_core;
 
 extern crate serde_json;
 
-extern crate telegram_bot;
-use telegram_bot::{BotFactory, Update};
+extern crate telegram_bot_client;
+use telegram_bot_client::{BotFactory, Update};
 
-extern crate telegram_bot_api;
-use telegram_bot_api as api;
+extern crate telegram_bot_types;
+use telegram_bot_types as types;
 
 use tokio_core::reactor;
 use futures::{Future, Stream};
@@ -30,11 +30,11 @@ fn main() {
                         }
                     })
         .for_each(|msg| {
-            let msg: api::response::Message = serde_json::from_value(msg)
+            let msg: types::response::Message = serde_json::from_value(msg)
                 .expect("Unexpected message format");
             let ret = bot
                         .request::<_, serde_json::Value>("sendMessage",
-                                 &api::request::Message::new(
+                                 &types::request::Message::new(
                                      msg.chat.id,
                                      msg.text.expect("please send text for now")));
             ret.and_then(|r| {
