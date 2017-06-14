@@ -144,38 +144,38 @@ impl Bot {
     }
     pub fn request<S, D>(&self, endpoint: &str, data: &S) -> Box<Future<Item = D, Error = Error>>
         where S: Serialize,
-              D: DeserializeOwned+'static
+              D: DeserializeOwned + 'static
     {
         let uri = Uri::from_str(&format!("{}{}", self.base_url, endpoint)).unwrap();
         let mut req = Request::new(Method::Post, uri);
         req.headers_mut().set(ContentType::json());
         req.set_body(serde_json::to_string(data).expect("Error converting struct to json"));
         Box::new(self.client
-            .request(req)
-            .from_err::<Error>()
-            .and_then(|res| {
-                res.body()
-                    .from_err::<Error>()
-                    .fold(Vec::new(), |mut v, chunk| {
-                        v.extend(&chunk[..]);
-                        future::ok::<_, Error>(v)
-                    })
-                    .and_then(|chunks| {
-                                  let s = String::from_utf8(chunks).unwrap();
-                                  future::result::<response::Response,
-                                                   Error>(serde_json::from_str(&s).map_err(|e| {
-                            e.into()
-                        }))
-                              })
-                    .and_then(|response| match response {
-                                  response::Response::Ok { result } => {
-                                      serde_json::from_value(result).map_err(|e| e.into())
-                                  }
-                                  response::Response::Error { description } => {
-                                      return Err(ErrorKind::ApiResponse(description).into());
-                                  }
-                              })
-            }))
+                     .request(req)
+                     .from_err::<Error>()
+                     .and_then(|res| {
+            res.body()
+                .from_err::<Error>()
+                .fold(Vec::new(), |mut v, chunk| {
+                    v.extend(&chunk[..]);
+                    future::ok::<_, Error>(v)
+                })
+                .and_then(|chunks| {
+                              let s = String::from_utf8(chunks).unwrap();
+                              future::result::<response::Response, Error>(serde_json::from_str(&s)
+                                                                              .map_err(|e| {
+                                                                                           e.into()
+                                                                                       }))
+                          })
+                .and_then(|response| match response {
+                              response::Response::Ok { result } => {
+                                  serde_json::from_value(result).map_err(|e| e.into())
+                              }
+                              response::Response::Error { description } => {
+                                  return Err(ErrorKind::ApiResponse(description).into());
+                              }
+                          })
+        }))
     }
 }
 
