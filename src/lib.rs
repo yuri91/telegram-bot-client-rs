@@ -65,7 +65,7 @@ mod response {
         shipping_query: Option<serde_json::Value>,
         pre_checkout_query: Option<serde_json::Value>,
     }
-    #[derive(Debug,Clone)]
+    #[derive(Debug, Clone)]
     pub enum Update {
         Message(serde_json::Value),
         EditedMessage(serde_json::Value),
@@ -98,7 +98,9 @@ mod response {
             } else if let Some(p) = self.pre_checkout_query {
                 Ok(Update::PreCheckoutQuery(p))
             } else {
-                Err(ErrorKind::ApiResponse("Unknown update response".to_owned()).into())
+                Err(
+                    ErrorKind::ApiResponse("Unknown update response".to_owned()).into(),
+                )
             }
         }
     }
@@ -143,39 +145,40 @@ impl Bot {
         Bot { client, base_url }
     }
     pub fn request<S, D>(&self, endpoint: &str, data: &S) -> Box<Future<Item = D, Error = Error>>
-        where S: Serialize,
-              D: DeserializeOwned + 'static
+    where
+        S: Serialize,
+        D: DeserializeOwned + 'static,
     {
         let uri = Uri::from_str(&format!("{}{}", self.base_url, endpoint)).unwrap();
         let mut req = Request::new(Method::Post, uri);
         req.headers_mut().set(ContentType::json());
-        req.set_body(serde_json::to_string(data).expect("Error converting struct to json"));
-        Box::new(self.client
-                     .request(req)
-                     .from_err::<Error>()
-                     .and_then(|res| {
-            res.body()
-                .from_err::<Error>()
-                .fold(Vec::new(), |mut v, chunk| {
-                    v.extend(&chunk[..]);
-                    future::ok::<_, Error>(v)
-                })
-                .and_then(|chunks| {
-                              let s = String::from_utf8(chunks).unwrap();
-                              future::result::<response::Response, Error>(serde_json::from_str(&s)
-                                                                              .map_err(|e| {
-                                                                                           e.into()
-                                                                                       }))
-                          })
-                .and_then(|response| match response {
-                              response::Response::Ok { result } => {
-                                  serde_json::from_value(result).map_err(|e| e.into())
-                              }
-                              response::Response::Error { description } => {
-                                  return Err(ErrorKind::ApiResponse(description).into());
-                              }
-                          })
-        }))
+        req.set_body(serde_json::to_string(data).expect(
+            "Error converting struct to json",
+        ));
+        Box::new(self.client.request(req).from_err::<Error>().and_then(
+            |res| {
+                res.body()
+                    .from_err::<Error>()
+                    .fold(Vec::new(), |mut v, chunk| {
+                        v.extend(&chunk[..]);
+                        future::ok::<_, Error>(v)
+                    })
+                    .and_then(|chunks| {
+                        let s = String::from_utf8(chunks).unwrap();
+                        future::result::<response::Response, Error>(
+                            serde_json::from_str(&s).map_err(|e| e.into()),
+                        )
+                    })
+                    .and_then(|response| match response {
+                        response::Response::Ok { result } => {
+                            serde_json::from_value(result).map_err(|e| e.into())
+                        }
+                        response::Response::Error { description } => {
+                            return Err(ErrorKind::ApiResponse(description).into());
+                        }
+                    })
+            },
+        ))
     }
 }
 
@@ -189,9 +192,10 @@ impl UpdateStream {
             pending_updates: Vec::new(),
         }
     }
-    fn get_updates(&self,
-                   offset: i32)
-                   -> Box<Future<Item = Vec<response::RawUpdate>, Error = Error>> {
+    fn get_updates(
+        &self,
+        offset: i32,
+    ) -> Box<Future<Item = Vec<response::RawUpdate>, Error = Error>> {
         let req = request::Update {
             offset,
             timeout: self.timeout.as_secs() as i32,
@@ -213,9 +217,9 @@ impl Stream for UpdateStream {
                 }
                 self.next_offset = new_offset + 1;
                 return match update.get() {
-                           Ok(up) => Ok(Async::Ready(Some(up))),
-                           Err(err) => Err(err),
-                       };
+                    Ok(up) => Ok(Async::Ready(Some(up))),
+                    Err(err) => Err(err),
+                };
             }
 
             let pending_response = self.pending_response.take();
