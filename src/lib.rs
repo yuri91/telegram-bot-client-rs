@@ -13,7 +13,7 @@ extern crate error_chain;
 
 use std::time::Duration;
 use std::str::FromStr;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use tokio_core::reactor;
 use futures::{Future, Stream, Async, Poll};
@@ -108,12 +108,12 @@ mod response {
 pub use response::Update;
 
 pub struct BotFactory {
-    client: Rc<Client>,
+    client: Arc<Client>,
 }
 
 #[derive(Clone)]
 pub struct Bot {
-    client: Rc<Client>,
+    client: Arc<Client>,
     base_url: String,
 }
 
@@ -130,7 +130,7 @@ impl BotFactory {
         let client = hyper::Client::configure()
             .connector(HttpsConnector::new(4, &handle).expect("connector failed"))
             .build(&handle);
-        BotFactory { client: Rc::new(client) }
+        BotFactory { client: Arc::new(client) }
     }
     pub fn new_bot(&self, token: &str) -> (Bot, UpdateStream) {
         let bot = Bot::new(self.client.clone(), token);
@@ -140,7 +140,7 @@ impl BotFactory {
 }
 
 impl Bot {
-    fn new(client: Rc<Client>, token: &str) -> Bot {
+    fn new(client: Arc<Client>, token: &str) -> Bot {
         let base_url = format!("https://api.telegram.org/bot{}/", token);
         Bot { client, base_url }
     }
