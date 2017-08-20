@@ -1,7 +1,7 @@
 [package]
 authors = ["Yuri Iozzelli <y.iozzelli@gmail.com>"]
 name = "telegram-bot-client"
-version = "0.2.0"
+version = "0.2.1"
 description = "Async Telegram Bot API client"
 documentation = "https://docs.rs/telegram-bot-client"
 keywords = ["telegram","bot","api", "client", "async"]
