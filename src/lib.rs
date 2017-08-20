@@ -234,7 +234,6 @@ impl Stream for UpdateStream {
                         return Ok(Async::NotReady);
                     }
                     Err(e) => {
-                        self.pending_response = Some(pending);
                         return Err(e);
                     }
                 }
